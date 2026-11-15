@@ -1,0 +1,63 @@
+# Shared release workflow for Wolffie modules.
+# Module repos don't copy this file: they call it (see for-each-module/release.yml).
+#
+# On a tag like v1.4.1 it:
+#   1. checks that the tag matches "version" in manifest.json, and stops if not
+#   2. builds <id>-<version>.zip plus a .sha256 file for the upload screen
+#   3. creates the GitHub release, with that version's changelog as its text
+
+name: Module release
+
+on:
+  workflow_call:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write          # needed to create the release
+    steps:
+      - name: Get the module's code
+        uses: actions/checkout@v4
+
+      - name: Get the module tools (this repo)
+        uses: actions/checkout@v4
+        with:
+          repository: WolffieEnergy/wolffie-module-tools
+          path: .module-tools
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check that the tag matches the manifest version
+        run: |
+          ID=$(node -p "require('./manifest.json').id")
+          VERSION=$(node -p "require('./manifest.json').version")
+          if [ "$GITHUB_REF_NAME" != "v$VERSION" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match manifest version $VERSION. Expected tag v$VERSION. No release made."
+            exit 1
+          fi
+          echo "ID=$ID" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Release text from the manifest changelog
+        run: node .module-tools/make-release-notes.mjs manifest.json - "$VERSION" > release-text.md
+
+      - name: Build the zip and its checksum
+        run: |
+          mkdir -p dist
+          # Files marked export-ignore in .gitattributes (tests/, .github/) are left out
+          git archive --format=zip --prefix="$ID/" -o "dist/$ID-$VERSION.zip" HEAD
+          sha256sum "dist/$ID-$VERSION.zip" | cut -d' ' -f1 > "dist/$ID-$VERSION.zip.sha256"
+          unzip -l "dist/$ID-$VERSION.zip"
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$ID $VERSION" \
+            --notes-file release-text.md \
+            --verify-tag
