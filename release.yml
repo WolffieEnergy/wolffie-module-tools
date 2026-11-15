@@ -1,0 +1,13 @@
+# Runs the shared Wolffie module release whenever a tag like v1.4.1 is pushed.
+# The real steps live in WolffieEnergy/wolffie-module-tools.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    uses: WolffieEnergy/wolffie-module-tools/.github/workflows/module-release.yml@main
